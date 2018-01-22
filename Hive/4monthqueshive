@@ -1,0 +1,761 @@
+// seicolan is taken as syntax terminator
+create table custTrans3(txsn_date STRING,cust_id STRING,age STRING,area STRING,prod_class STRING,prod_id STRING,qty INT,cost BIGINT,sales BIGINT) row format delimited fields terminated by '\;' stored as textfile;
+
+transfer data file to table
+---------------------------------------------------------------
+LOAD DATA LOCAL INPATH '/home/hduser/Downloads/D01' OVERWRITE INTO TABLE custtrans3;
+LOAD DATA LOCAL INPATH '/home/hduser/Downloads/D02' INTO TABLE custtrans;
+
+
+find total number of records for all 4 months
+>> select count(*) from custtrans3;
+
+find number of records for each month
+
+>>select month(txns_date),count(*) from custtrans3 group by month(txns_date);
+1	216864
+2	199039
+11	223622
+12	178216
+
+check following data before working on it always''
+---------------
+select * from custtrans3 where sales is null or cost is null;
+select * from custtrans3 where sales<=0 or cost<=0;
+
+solution>>
+create new table and delete the null record from 1st and transfer it to second file
+---------------------------------------------------------------------
+syntax=
+insert overwrite table new_tbl_name
+select * from tbl_name where sales>0 and cost>0;
+
+example==
+create table custTrans4(txsn_date STRING,cust_id STRING,age STRING,area STRING,prod_class STRING,prod_id STRING,qty INT,cost BIGINT,sales BIGINT) row format delimited fields terminated by '\;' stored as textfile;
+
+insert overwrite table custtrans4
+select * from custtrans3 where sales>0 and cost>0;
+
+check-- select count(*) from custtrans4;
+select * from custtrans4 where sales is null or cost is null;
+select * from custtrans4 where sales<=0 or cost<=0;
+----------------------------------------------------------------------
+//all month
+select cust_id,txsn_date from custtrans4
+where sales IN(select max(sales) as val 
+from custtrans4 order by val)
+group by cust_id,txsn_date; // sales =() not supported
+
+01622362  	2001-02-17 00:00:00
+
+select cust_id,txsn_date,sales from custtrans4
+where sales IN(select max(sales) as val 
+from custtrans4 b where month(b.txsn_date) = 1)
+group by cust_id,txsn_date;//
+inner query can generate two record thus we will add condition outside inner query also
+//jan
+select cust_id,txsn_date,sales from custtrans4
+where month(txsn_date)=1
+and sales IN(select max(sales) as val 
+from custtrans4 b where month(b.txsn_date) = 1)
+group by cust_id,txsn_date,sales;
+
+01062489  	2001-01-03 00:00:00	45554
+
+//feb
+select cust_id,txsn_date,sales from custtrans4
+where month(txsn_date)=2
+and sales IN(select max(sales) as val 
+from custtrans4 b where month(b.txsn_date) = 2)
+group by cust_id,txsn_date,sales;
+01622362  	2001-02-17 00:00:00	444000
+
+//nov
+select cust_id,txsn_date,sales from custtrans4
+where month(txsn_date)=11
+and sales IN(select max(sales) as val 
+from custtrans4 b where month(b.txsn_date) = 11)
+group by cust_id,txsn_date,sales;
+02119083  	2000-11-28 00:00:00	62688
+
+//dec
+select cust_id,txsn_date,sales from custtrans4
+where month(txsn_date)=12
+and sales IN(select max(sales) as val 
+from custtrans4 b where month(b.txsn_date) = 12)
+group by cust_id,txsn_date,sales;
+02131221  	2000-12-27 00:00:00	70589
+02134819 	2000-12-27 00:00:00	70589
+
+----------------------------------------------------------------------------------------
+Find total gross profit made by each product and also by each category for all the 4 months data.
+
+//product
+select prod_id,sum(sales-cost) 
+from custtrans4 
+group by prod_id;
+
+Time taken: 4.339 seconds, Fetched: 23806 row(s)
+
+
+INSERT OVERWRITE DIRECTORY '/niit/catprofhive' row format delimited fields terminated by ','
+select prod_class,sum(sales-cost)
+from custtrans4  
+group by prod_class;
+
+Time taken: 2.32 seconds, Fetched: 2011 row(s)
+
+-----------------------------------------------------------------------------------------
+Find total gross profit % made by each product and also by each category for all the 4 months data.
+
+select prod_id,round(sum(((sales-cost)*100)/cost),0) 
+from custtrans4 
+group by prod_id;
+Time taken: 2.322 seconds, Fetched: 23806 row(s)
+
+select prod_class,round(sum(((sales-cost)*100)/cost),0) 
+from custtrans4 
+group by prod_class;
+Time taken: 2.547 seconds, Fetched: 2012 row(s)
+-----------------------------------------------------------------------------------------
+
+B) Find out the top 4 or top 10 product being sold in the monthly basis and in all the 4 months.. Criteria for top should be sales amount.
+
+select prod_id,sum(sales)
+from custtrans4
+where M
+
+
+
+--------------------------------------------------------------------------------------------
+c) Find out the (top 5*) viable products and the (top 5*) product subclass for the age group A, B, C etc..... Data should be taken for all the 4 months
+
+--------------------
+// 1. top 5 product
+--------------------
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+and age='A '
+group by prod_id,age
+order by val desc
+limit 5;
+
+4711588210441	A 	12025
+20559045     	A 	3290
+4973167032060	A 	2163
+4973167738757	A 	1854
+20556433     	A 	1776
+Time taken: 3.538 seconds, Fetched: 5 row(s)
+
+
+// table_A
+create table table_A(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_A
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='A'
+order by val desc
+limit 5;
+
+//table_B
+create table table_B(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_B
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='B'
+order by val desc
+limit 5;
+
+//table_C
+create table table_C(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_C
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='C'
+order by val desc
+limit 5;
+
+//table_D
+create table table_D(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_D
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='D'
+order by val desc
+limit 5;
+
+//table_E
+create table table_E(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_E
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='E'
+order by val desc
+limit 5;
+
+//table_F
+create table table_F(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_F
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='F'
+order by val desc
+limit 5;
+
+//table_G
+create table table_G(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_G
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='G'
+order by val desc
+limit 5;
+
+//table_H
+create table table_H(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_H
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='H'
+order by val desc
+limit 5;
+
+//table_I
+create table table_I(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_I
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='I'
+order by val desc
+limit 5;
+
+//table_J
+create table table_J(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_J
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='J'
+order by val desc
+limit 5;
+
+//table_K
+create table table_K(age string,productId string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_K
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_id
+having trim(age)='K'
+order by val desc
+limit 5;
+
+
+//output using union
+select*from(
+select age,totalsales,productId from table_A
+union
+select age,totalsales,productId from table_B
+union
+select age,totalsales,productId from table_C
+union
+select age,totalsales,productId from table_D
+union
+select age,totalsales,productId from table_E
+union
+select age,totalsales,productId from table_F
+union
+select age,totalsales,productId from table_G
+union
+select age,totalsales,productId from table_H
+union
+select age,totalsales,productId from table_I
+union
+select age,totalsales,productId from table_J
+union
+select age,totalsales,productId from table_K
+) z
+order by age,totalsales desc;
+
+
+
+
+
+
+
+// category
+select prod_class,age,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+and age='A '
+group by prod_class,age
+order by val desc
+limit 5;
+OK
+320402	A 	17237
+100516	A 	12915
+560201	A 	9121
+530101	A 	8980
+530110	A 	8285
+Time taken: 3.845 seconds, Fetched: 5 row(s)
+
+--------------------
+// 1. top 5 productcategory
+--------------------
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+and age='A '
+group by prod_class,age
+order by val desc
+limit 5;
+
+4711588210441	A 	12025
+20559045     	A 	3290
+4973167032060	A 	2163
+4973167738757	A 	1854
+20556433     	A 	1776
+Time taken: 3.538 seconds, Fetched: 5 row(s)
+
+
+// table_A
+create table table_cat_A(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_A
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='A'
+order by val desc
+limit 5;
+
+//table_B
+create table table_cat_B(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_B
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='B'
+order by val desc
+limit 5;
+
+//table_C
+create table table_cat_C(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_C
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='C'
+order by val desc
+limit 5;
+
+//table_D
+create table table_cat_D(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_D
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='D'
+order by val desc
+limit 5;
+
+//table_E
+create table table_cat_E(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_E
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='E'
+order by val desc
+limit 5;
+
+//table_F
+create table table_cat_F(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_F
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='F'
+order by val desc
+limit 5;
+
+//table_cat_G
+create table table_cat_G(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_G
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='G'
+order by val desc
+limit 5;
+
+//table_cat_H
+create table table_cat_H(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_H
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='H'
+order by val desc
+limit 5;
+
+//table_cat_I
+create table table_cat_I(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_I
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='I'
+order by val desc
+limit 5;
+
+//table_cat_J
+create table table_cat_J(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_J
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='J'
+order by val desc
+limit 5;
+
+//table_cat_K
+create table table_cat_K(age string,productcat string, totalsales bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_cat_K
+select age,prod_class,sum(sales-cost) as val
+from custtrans4
+where sales-cost>0 
+group by age,prod_class
+having trim(age)='K'
+order by val desc
+limit 5;
+
+
+//output using union
+select*from(
+select age,totalsales,productcat from table_cat_A
+union
+select age,totalsales,productcat from table_cat_B
+union
+select age,totalsales,productcat from table_cat_C
+union
+select age,totalsales,productcat from table_cat_D
+union
+select age,totalsales,productcat from table_cat_E
+union
+select age,totalsales,productcat from table_cat_F
+union
+select age,totalsales,productcat from table_cat_G
+union
+select age,totalsales,productcat from table_cat_H
+union
+select age,totalsales,productcat from table_cat_I
+union
+select age,totalsales,productcat from table_cat_J
+union
+select age,totalsales,productcat from table_cat_K
+) s
+order by age,totalsales desc;
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------
+D) Find out the (top 5*) loss making products and the (top 5*) loss making product subclass for the age group A, B, C etc..... Data should be taken for all the 4 months
+
+--------------------
+// 1. top 5  loss product
+--------------------
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+and age='A '
+group by prod_id,age
+order by val desc
+limit 5;
+
+// table_A
+create table table_loss_prod_A(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_A
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='A'
+order by val desc
+limit 5;
+
+//table_B
+create table table_loss_prod_B(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_B
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='B'
+order by val desc
+limit 5;
+
+//table_C
+create table table_loss_prod_C(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_C
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='C'
+order by val desc
+limit 5;
+
+//table_D
+create table table_loss_prod_D(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_D
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='D'
+order by val desc
+limit 5;
+
+//table_E
+create table table_loss_prod_E(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_E
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='E'
+order by val desc
+limit 5;
+
+//table_F
+create table table_loss_prod_F(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_F
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='F'
+order by val desc
+limit 5;
+
+//table_G
+create table table_loss_prod_G(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_G
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='G'
+order by val desc
+limit 5;
+
+//table_H
+create table table_loss_prod_H(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_H
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='H'
+order by val desc
+limit 5;
+
+//table_I
+create table table_loss_prod_I(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_I
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='I'
+order by val desc
+limit 5;
+
+//table_J
+create table table_loss_prod_J(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_J
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='J'
+order by val desc
+limit 5;
+
+//table_K
+create table table_loss_prod_K(age string,productId string, totalloss bigint)
+row format delimited
+fields terminated by ',';
+
+insert overwrite table table_loss_prod_K
+select age,prod_id,sum(cost-sales) as val
+from custtrans4
+where cost-sales>0 
+group by age,prod_id
+having trim(age)='K'
+order by val desc
+limit 5;
+
+
+//output using union
+select*from(
+select age,totalloss,productId from table_loss_prod_A
+union
+select age,totalloss,productId from table_loss_prod_B
+union
+select age,totalloss,productId from table_loss_prod_C
+union
+select age,totalloss,productId from table_loss_prod_D
+union
+select age,totalloss,productId from table_loss_prod_E
+union
+select age,totalloss,productId from table_loss_prod_F
+union
+select age,totalloss,productId from table_loss_prod_G
+union
+select age,totalloss,productId from table_loss_prod_H
+union
+select age,totalloss,productId from table_loss_prod_I
+union
+select age,totalloss,productId from table_loss_prod_J
+union
+select age,totalloss,productId from table_loss_prod_K
+) p
+order by age,totalloss desc;
+
+
+select age,prod_id,sum(sales-cost) as val
+from custtrans4
+where sales-costs<0 
+group by age,prod_id
+having trim(age)='G'
+order by val 
+limit 5;
+
+
